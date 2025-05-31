@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Shield, Eye, EyeOff } from "lucide-react"
+import { Shield, Eye, EyeOff, AlertTriangle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export default function DeveloperLogin() {
@@ -22,41 +22,34 @@ export default function DeveloperLogin() {
     e.preventDefault()
     setIsLoading(true)
 
-    try {
-      if (password === "Slag6Added") {
-        // Store developer session
-        localStorage.setItem("developerAuth", "authenticated")
-        localStorage.setItem("developerLoginTime", Date.now().toString())
+    // Check password
+    if (password === "Slag6Added") {
+      // Store authentication in localStorage
+      localStorage.setItem("developerAuth", "authenticated")
+      localStorage.setItem("developerLoginTime", Date.now().toString())
 
-        toast({
-          title: "Developer Access Granted",
-          description: "Welcome to the Cardo Developer Dashboard",
-        })
-
-        router.push("/developer/dashboard")
-      } else {
-        throw new Error("Invalid developer password")
-      }
-    } catch (error: any) {
       toast({
-        title: "Access Denied",
-        description: "Invalid developer credentials",
+        title: "🔓 Access Granted",
+        description: "Welcome to the Cardo Developer Dashboard",
+        variant: "default",
+      })
+
+      // Redirect to dashboard
+      router.push("/developer/dashboard")
+    } else {
+      toast({
+        title: "🚫 Access Denied",
+        description: "Invalid developer password",
         variant: "destructive",
       })
-    } finally {
-      setIsLoading(false)
     }
+
+    setIsLoading(false)
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-900 via-gray-900 to-black flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-red-600/20 to-orange-600/20 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-br from-gray-600/20 to-red-600/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
-      </div>
-
-      {/* Grid pattern overlay */}
+    <div className="min-h-screen bg-gradient-to-br from-red-900 via-gray-900 to-black relative overflow-hidden flex items-center justify-center">
+      {/* Background effects */}
       <div className="absolute inset-0 opacity-20">
         <div
           className="absolute inset-0"
@@ -70,72 +63,87 @@ export default function DeveloperLogin() {
         ></div>
       </div>
 
-      <div className="max-w-md w-full relative z-10">
-        <Card className="border-red-800 shadow-2xl bg-gray-900/90 backdrop-blur-sm">
-          <CardHeader className="text-center">
-            <div className="flex items-center justify-center mb-4">
-              <div className="w-16 h-16 bg-gradient-to-br from-red-600 to-orange-600 rounded-2xl flex items-center justify-center shadow-lg">
-                <Shield className="h-8 w-8 text-white" />
-              </div>
-            </div>
-            <CardTitle className="text-2xl font-bold text-red-400">Developer Access</CardTitle>
-            <CardDescription className="text-gray-400">Restricted area - Authorized personnel only</CardDescription>
-          </CardHeader>
-
-          <form onSubmit={handleLogin}>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-gray-300">
-                  Developer Password
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter developer password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="bg-gray-800 border-gray-700 text-white placeholder-gray-500 focus:border-red-500 pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white shadow-lg"
-                disabled={isLoading}
-              >
-                {isLoading ? "Authenticating..." : "Access Dashboard"}
-              </Button>
-
-              <div className="text-center">
-                <p className="text-xs text-gray-500">This area is monitored and logged for security purposes</p>
-              </div>
-            </CardContent>
-          </form>
-        </Card>
-
-        {/* Warning notice */}
-        <div className="mt-6 p-4 bg-red-900/30 border border-red-800 rounded-lg backdrop-blur-sm">
-          <div className="flex items-center gap-2 text-red-400 text-sm">
-            <Shield className="h-4 w-4" />
-            <span className="font-medium">Security Notice</span>
-          </div>
-          <p className="text-red-300 text-xs mt-1">
-            Unauthorized access attempts are logged and may result in legal action
-          </p>
+      {/* Warning banner */}
+      <div className="absolute top-0 left-0 right-0 bg-red-600/90 backdrop-blur-sm border-b border-red-500 p-3 z-10">
+        <div className="container mx-auto flex items-center justify-center gap-2 text-white">
+          <AlertTriangle className="h-5 w-5" />
+          <span className="font-medium">RESTRICTED ACCESS - AUTHORIZED PERSONNEL ONLY</span>
         </div>
       </div>
+
+      <Card className="w-full max-w-md bg-gray-900/90 border-red-800 backdrop-blur-sm relative z-10 mt-16">
+        <CardHeader className="text-center">
+          <div className="mx-auto w-12 h-12 bg-gradient-to-br from-red-600 to-orange-600 rounded-lg flex items-center justify-center mb-4">
+            <Shield className="h-6 w-6 text-white" />
+          </div>
+          <CardTitle className="text-2xl font-bold text-red-400">Developer Access</CardTitle>
+          <CardDescription className="text-gray-400">
+            Enter developer credentials to access the Cardo management dashboard
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-gray-300">
+                Developer Password
+              </Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter developer password"
+                  className="bg-gray-800 border-gray-700 text-white placeholder-gray-500 focus:border-red-500 pr-10"
+                  required
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 text-gray-400 hover:text-white"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              disabled={isLoading || !password}
+              className="w-full bg-red-600 hover:bg-red-700 text-white"
+            >
+              {isLoading ? "Authenticating..." : "🔓 Access Dashboard"}
+            </Button>
+          </form>
+
+          <div className="mt-6 p-3 bg-red-900/30 border border-red-800 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-red-200">
+                <p className="font-medium mb-1">Security Notice:</p>
+                <ul className="space-y-1">
+                  <li>• All access attempts are logged</li>
+                  <li>• Session expires after 24 hours</li>
+                  <li>• Unauthorized access is prohibited</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 text-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push("/")}
+              className="text-gray-400 hover:text-white"
+            >
+              ← Back to Main Site
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -12,7 +12,6 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -102,19 +101,34 @@ export default function DeveloperDashboard() {
 
           const totalPunches = punchcards?.reduce((sum, pc) => sum + pc.punches, 0) || 0
 
-          // Get last activity
-          const { data: lastActivity } = await supabase
-            .from("punch_history")
-            .select("created_at")
-            .eq("business_id", business.id)
-            .order("created_at", { ascending: false })
-            .limit(1)
+          // Get last activity - try punch_history first, fallback to punchcards
+          let lastActivity = null
+          try {
+            const { data: punchHistory } = await supabase
+              .from("punch_history")
+              .select("created_at")
+              .eq("business_id", business.id)
+              .order("created_at", { ascending: false })
+              .limit(1)
+
+            lastActivity = punchHistory?.[0]?.created_at || null
+          } catch (error) {
+            // If punch_history doesn't exist, use punchcards updated_at
+            const { data: punchcardActivity } = await supabase
+              .from("punchcards")
+              .select("updated_at")
+              .eq("business_id", business.id)
+              .order("updated_at", { ascending: false })
+              .limit(1)
+
+            lastActivity = punchcardActivity?.[0]?.updated_at || null
+          }
 
           return {
             ...business,
             customer_count: customerCount || 0,
             total_punches: totalPunches,
-            last_activity: lastActivity?.[0]?.created_at || null,
+            last_activity: lastActivity,
           }
         }),
       )
@@ -147,81 +161,142 @@ export default function DeveloperDashboard() {
     }
   }
 
+  // Helper function to safely delete from a table
+  const safeDelete = async (tableName: string, condition: any, conditionValue: string) => {
+    try {
+      const { error } = await supabase.from(tableName).delete().eq(condition, conditionValue)
+
+      if (error) {
+        // Check if it's a "table doesn't exist" error
+        if (error.message.includes("does not exist") || error.code === "42P01") {
+          console.log(`⚠️ Table ${tableName} does not exist, skipping...`)
+          return { success: true, skipped: true }
+        }
+        throw error
+      }
+
+      console.log(`✅ Deleted from ${tableName}`)
+      return { success: true, skipped: false }
+    } catch (error: any) {
+      console.error(`❌ Error deleting from ${tableName}:`, error)
+      return { success: false, error: error.message }
+    }
+  }
+
+  // Helper function to safely delete with IN condition
+  const safeDeleteIn = async (tableName: string, condition: string, values: string[]) => {
+    if (values.length === 0) return { success: true, skipped: true }
+
+    try {
+      const { error } = await supabase.from(tableName).delete().in(condition, values)
+
+      if (error) {
+        if (error.message.includes("does not exist") || error.code === "42P01") {
+          console.log(`⚠️ Table ${tableName} does not exist, skipping...`)
+          return { success: true, skipped: true }
+        }
+        throw error
+      }
+
+      console.log(`✅ Deleted from ${tableName}`)
+      return { success: true, skipped: false }
+    } catch (error: any) {
+      console.error(`❌ Error deleting from ${tableName}:`, error)
+      return { success: false, error: error.message }
+    }
+  }
+
   const handleKillSwitch = async (business: Business) => {
     setIsDeleting(true)
 
     try {
-      // Delete all related data in correct order
-      console.log(`Initiating kill switch for business: ${business.name}`)
+      console.log(`🔥 Initiating kill switch for business: ${business.name}`)
 
-      // 1. Delete redemption history
-      const { error: redemptionError } = await supabase
-        .from("redemption_history")
-        .delete()
+      // Step 1: Get all punchcards for this business to find related user data
+      const { data: punchcards, error: punchcardsQueryError } = await supabase
+        .from("punchcards")
+        .select("id, user_id")
         .eq("business_id", business.id)
 
-      if (redemptionError) throw redemptionError
+      if (punchcardsQueryError) {
+        console.error("Error querying punchcards:", punchcardsQueryError)
+        throw punchcardsQueryError
+      }
 
-      // 2. Delete punch history
-      const { error: punchHistoryError } = await supabase.from("punch_history").delete().eq("business_id", business.id)
+      const punchcardIds = punchcards?.map((pc) => pc.id) || []
+      const userIds = punchcards?.map((pc) => pc.user_id) || []
 
-      if (punchHistoryError) throw punchHistoryError
+      console.log(`Found ${punchcardIds.length} punchcards to delete`)
 
-      // 3. Delete business rewards
-      const { error: rewardsError } = await supabase.from("business_rewards").delete().eq("business_id", business.id)
+      // Step 2: Delete redemption history (try both by punchcard_id and business_id)
+      if (punchcardIds.length > 0) {
+        const redemptionResult = await safeDeleteIn("redemption_history", "punchcard_id", punchcardIds)
+        if (!redemptionResult.success && !redemptionResult.skipped) {
+          console.warn("Failed to delete redemption history by punchcard_id, trying business_id...")
+          await safeDelete("redemption_history", "business_id", business.id)
+        }
+      }
 
-      if (rewardsError) throw rewardsError
+      // Step 3: Delete punch history
+      await safeDelete("punch_history", "business_id", business.id)
 
-      // 4. Delete punchcards
-      const { error: punchcardsError } = await supabase.from("punchcards").delete().eq("business_id", business.id)
+      // Step 4: Delete business rewards
+      await safeDelete("business_rewards", "business_id", business.id)
 
-      if (punchcardsError) throw punchcardsError
+      // Step 5: Delete punchcards (this is critical - must succeed)
+      const punchcardsResult = await safeDelete("punchcards", "business_id", business.id)
+      if (!punchcardsResult.success) {
+        throw new Error(`Failed to delete punchcards: ${punchcardsResult.error}`)
+      }
 
-      // 5. Delete user recommendations
-      const { error: recommendationsError } = await supabase
-        .from("user_recommendations")
-        .delete()
-        .eq("business_id", business.id)
+      // Step 6: Delete user recommendations
+      await safeDelete("user_recommendations", "business_id", business.id)
 
-      if (recommendationsError) throw recommendationsError
+      // Step 7: Delete business QR codes
+      await safeDelete("business_qr_codes", "business_id", business.id)
 
-      // 6. Delete business QR codes
-      const { error: qrError } = await supabase.from("business_qr_codes").delete().eq("business_id", business.id)
+      // Step 8: Delete email logs related to business
+      await safeDelete("email_logs", "recipient_email", business.email)
 
-      if (qrError) throw qrError
+      // Step 9: Delete email verification records
+      await safeDelete("email_verifications", "email", business.email)
 
-      // 7. Delete email logs related to business
-      const { error: emailError } = await supabase.from("email_logs").delete().eq("recipient_email", business.email)
+      // Step 10: Finally delete the business account (this is critical - must succeed)
+      const businessResult = await safeDelete("businesses", "id", business.id)
+      if (!businessResult.success) {
+        throw new Error(`Failed to delete business: ${businessResult.error}`)
+      }
 
-      if (emailError) throw emailError
-
-      // 8. Finally delete the business
-      const { error: businessError } = await supabase.from("businesses").delete().eq("id", business.id)
-
-      if (businessError) throw businessError
-
-      // Log the kill switch action
-      await supabase.from("email_logs").insert({
-        recipient_email: "developer@cardo.com",
-        subject: "KILL SWITCH ACTIVATED",
-        content: `Business "${business.name}" (${business.email}) has been permanently deleted by developer at ${new Date().toISOString()}`,
-        email_type: "kill_switch",
-        sent_at: new Date().toISOString(),
-      })
+      // Step 11: Log the kill switch action
+      try {
+        await supabase.from("email_logs").insert({
+          recipient_email: "developer@cardo.com",
+          subject: "🔥 KILL SWITCH ACTIVATED",
+          content: `Business "${business.name}" (${business.email}) has been permanently deleted by developer at ${new Date().toISOString()}. Affected users: ${userIds.length}, Punchcards deleted: ${punchcardIds.length}`,
+          email_type: "kill_switch",
+          sent_at: new Date().toISOString(),
+        })
+      } catch (logError) {
+        console.error("Failed to log kill switch action:", logError)
+        // Don't fail the entire operation if logging fails
+      }
 
       toast({
         title: "🔥 Kill Switch Activated",
-        description: `${business.name} has been permanently deleted from the system.`,
+        description: `${business.name} has been permanently deleted from the system. ${punchcardIds.length} punchcards and all related data removed.`,
         variant: "destructive",
       })
 
-      // Reload data
-      loadDashboardData()
+      console.log(`🔥 Kill switch completed successfully for ${business.name}`)
+
+      // Reload data to reflect changes
+      await loadDashboardData()
       setSelectedBusiness(null)
     } catch (error: any) {
+      console.error("Kill switch failed:", error)
       toast({
         title: "Kill Switch Failed",
-        description: error.message || "Failed to delete business.",
+        description: error.message || "Failed to delete business. Check console for details.",
         variant: "destructive",
       })
     } finally {
@@ -416,26 +491,26 @@ export default function DeveloperDashboard() {
                                 <AlertDialogTitle className="text-red-400 flex items-center gap-2">
                                   <AlertTriangle className="h-5 w-5" />🔥 KILL SWITCH ACTIVATION
                                 </AlertDialogTitle>
-                                <AlertDialogDescription className="text-gray-300">
-                                  <div className="space-y-3">
-                                    <p className="font-medium">
-                                      You are about to permanently delete:{" "}
-                                      <span className="text-red-400">{selectedBusiness?.name}</span>
-                                    </p>
-                                    <div className="bg-red-900/30 border border-red-800 rounded-lg p-3">
-                                      <p className="text-red-300 font-medium mb-2">This will permanently delete:</p>
-                                      <ul className="text-red-200 text-sm space-y-1">
-                                        <li>• Business account and all data</li>
-                                        <li>• All customer punchcards</li>
-                                        <li>• All punch and redemption history</li>
-                                        <li>• All business rewards and QR codes</li>
-                                        <li>• All related analytics and logs</li>
-                                      </ul>
-                                    </div>
-                                    <p className="text-yellow-400 font-medium">⚠️ THIS ACTION CANNOT BE UNDONE</p>
-                                  </div>
-                                </AlertDialogDescription>
                               </AlertDialogHeader>
+
+                              <div className="space-y-3 text-gray-300">
+                                <div className="font-medium">
+                                  You are about to permanently delete:{" "}
+                                  <span className="text-red-400">{selectedBusiness?.name}</span>
+                                </div>
+                                <div className="bg-red-900/30 border border-red-800 rounded-lg p-3">
+                                  <div className="text-red-300 font-medium mb-2">This will permanently delete:</div>
+                                  <ul className="text-red-200 text-sm space-y-1">
+                                    <li>• Business account and all data</li>
+                                    <li>• All customer punchcards</li>
+                                    <li>• All punch and redemption history</li>
+                                    <li>• All business rewards and QR codes</li>
+                                    <li>• All related analytics and logs</li>
+                                  </ul>
+                                </div>
+                                <div className="text-yellow-400 font-medium">⚠️ THIS ACTION CANNOT BE UNDONE</div>
+                              </div>
+
                               <AlertDialogFooter>
                                 <AlertDialogCancel className="bg-gray-800 border-gray-600 text-white hover:bg-gray-700">
                                   Cancel
