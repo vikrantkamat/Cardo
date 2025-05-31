@@ -247,19 +247,6 @@ export default function WelcomePage() {
             <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse delay-400"></div>
           </div>
 
-          {/* Quick Links */}
-          <div className="flex flex-wrap justify-center gap-4 text-xs">
-            <Link href="/help" className="text-slate-400 hover:text-slate-600 transition-colors">
-              Help Center
-            </Link>
-            <Link href="/contact" className="text-slate-400 hover:text-slate-600 transition-colors">
-              Contact Us
-            </Link>
-            <Link href="/privacy" className="text-slate-400 hover:text-slate-600 transition-colors">
-              Privacy Policy
-            </Link>
-          </div>
-
           {/* Developer Access Link */}
           <Link href="/developer/login">
             <Button
