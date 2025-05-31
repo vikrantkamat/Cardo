@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Camera, CheckCircle2, XCircle, AlertCircle, RotateCcw, Gift, User } from "lucide-react"
+import { Camera, CheckCircle2, XCircle, AlertCircle, RotateCcw, Gift, User, RefreshCw } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 
 interface QrScannerProps {
   onScan: (data: string) => void
@@ -12,7 +13,12 @@ interface QrScannerProps {
 
 export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
   const [isScanning, setIsScanning] = useState(false)
-  const [scanResult, setScanResult] = useState<{ success: boolean; message: string; type?: string } | null>(null)
+  const [scanResult, setScanResult] = useState<{
+    success: boolean
+    message: string
+    type?: string
+    reward?: string
+  } | null>(null)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [facingMode, setFacingMode] = useState<"user" | "environment">("environment")
@@ -76,14 +82,14 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
             const redemptionData = JSON.parse(redemptionJson)
 
             if (onRedemptionScan) {
-              handleRedemptionScanSuccess(redemptionData)
-              onRedemptionScan(redemptionData)
+              // Validate the redemption token
+              await validateRedemptionToken(redemptionData)
             } else {
               handleScanSuccess(code.data, "redemption")
             }
-          } catch (error) {
+          } catch (error: any) {
             console.error("Error parsing redemption data:", error)
-            handleScanError("Invalid redemption QR code")
+            handleScanError(error.message || "Invalid redemption QR code")
           }
         } else {
           // Regular user QR code
@@ -101,6 +107,57 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
       animationRef.current = requestAnimationFrame(scanQRCode)
     }
   }, [isScanning, isProcessing, onScan, onRedemptionScan])
+
+  // Validate redemption token
+  const validateRedemptionToken = async (redemptionData: any) => {
+    try {
+      const { token, userId, businessId, punchcardId, reward } = redemptionData
+
+      if (!token) {
+        throw new Error("Invalid redemption code: missing token")
+      }
+
+      // Check if token exists and is valid
+      const { data: tokenData, error: tokenError } = await supabase
+        .from("redemption_tokens")
+        .select("*")
+        .eq("token", token)
+        .single()
+
+      if (tokenError || !tokenData) {
+        throw new Error("Invalid or expired redemption code")
+      }
+
+      // Check if token is already used
+      if (tokenData.is_used) {
+        throw new Error("This redemption code has already been used")
+      }
+
+      // Check if token is expired
+      const expiryTime = new Date(tokenData.expires_at)
+      if (expiryTime < new Date()) {
+        throw new Error("This redemption code has expired")
+      }
+
+      // Mark token as used
+      const { error: updateError } = await supabase
+        .from("redemption_tokens")
+        .update({ is_used: true, used_at: new Date().toISOString() })
+        .eq("token", token)
+
+      if (updateError) {
+        throw new Error("Error processing redemption")
+      }
+
+      // Process the redemption
+      handleRedemptionScanSuccess(redemptionData)
+      if (onRedemptionScan) {
+        onRedemptionScan(redemptionData)
+      }
+    } catch (error: any) {
+      handleScanError(error.message || "Error validating redemption")
+    }
+  }
 
   const startScanner = async () => {
     setScanResult(null)
@@ -179,8 +236,9 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
     stopScanner()
     setScanResult({
       success: true,
-      message: `Redemption scanned: ${redemptionData.reward}`,
+      message: `Redemption successful!`,
       type: "redemption",
+      reward: redemptionData.reward,
     })
 
     // Auto-close after 3 seconds
@@ -287,6 +345,13 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
                       )}
                     </div>
                     <p className="text-lg font-medium text-green-800">{scanResult.message}</p>
+
+                    {scanResult.type === "redemption" && scanResult.reward && (
+                      <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-3">
+                        <p className="text-green-800 font-medium">Reward: {scanResult.reward}</p>
+                      </div>
+                    )}
+
                     <div className="mt-2 flex justify-center">
                       <div className="flex gap-1">
                         <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
@@ -299,6 +364,14 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
                   <>
                     <XCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
                     <p className="text-lg font-medium text-red-800">{scanResult.message}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4 border-red-200 text-red-600 hover:bg-red-50"
+                      onClick={() => setScanResult(null)}
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" /> Try Again
+                    </Button>
                   </>
                 )}
               </div>

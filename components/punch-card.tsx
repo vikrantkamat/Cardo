@@ -50,7 +50,7 @@ export function PunchCard({
   }
 
   const getBusinessIcon = () => {
-    switch (businessType) {
+    switch (businessType.toLowerCase()) {
       case "cafe":
         return "☕"
       case "bakery":
@@ -81,13 +81,13 @@ export function PunchCard({
           <div
             key={punchIndex}
             className={cn(
-              "w-8 h-8 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-all duration-300",
+              "w-7 h-7 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-300",
               isPunched
-                ? "bg-white text-gray-800 border-white shadow-lg scale-110"
-                : "bg-transparent border-white/50 text-white/70 hover:border-white/80",
+                ? "bg-white text-gray-800 shadow-md scale-105 border-2 border-white"
+                : "bg-white/20 border border-white/40 text-white/90",
             )}
           >
-            {isPunched ? "✓" : punchIndex + 1}
+            {isPunched ? "✓" : ""}
           </div>,
         )
       }
@@ -111,36 +111,43 @@ export function PunchCard({
       >
         {/* Front of Card */}
         <div
-          className="absolute inset-0 w-full h-full backface-hidden rounded-xl shadow-2xl overflow-hidden"
+          className="absolute inset-0 w-full h-full backface-hidden rounded-xl shadow-lg overflow-hidden"
           style={{
-            background: `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}dd 50%, ${primaryColor}bb 100%)`,
+            background: `linear-gradient(135deg, ${primaryColor} 0%, ${primaryColor}dd 100%)`,
           }}
         >
           {/* Card Background Pattern */}
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute top-4 right-4 w-16 h-16 rounded-full border-4 border-white/30"></div>
-            <div className="absolute top-8 right-8 w-8 h-8 rounded-full border-2 border-white/20"></div>
-            <div className="absolute bottom-4 left-4 w-12 h-12 rounded-full border-3 border-white/25"></div>
+          <div className="absolute inset-0">
+            <div
+              className="absolute inset-0 opacity-10"
+              style={{
+                backgroundImage: `radial-gradient(circle at 20% 20%, white 0%, transparent 8%), 
+                                  radial-gradient(circle at 80% 80%, white 0%, transparent 8%)`,
+                backgroundSize: "60px 60px",
+              }}
+            ></div>
           </div>
 
           {/* Card Content */}
-          <div className="relative z-10 p-6 h-full flex flex-col justify-between text-white">
+          <div className="relative z-10 p-5 h-full flex flex-col justify-between text-white">
             {/* Header */}
             <div className="flex justify-between items-start">
-              <div>
-                <div className="text-2xl mb-1">{getBusinessIcon()}</div>
-                <div className="text-xs opacity-80 uppercase tracking-wider">Loyalty Card</div>
-              </div>
-              <div className="text-right">
-                <div className="text-lg font-bold">
-                  {punches}/{totalPunches}
+              <div className="flex items-center gap-2">
+                <div className="text-2xl">{getBusinessIcon()}</div>
+                <div>
+                  <div className="text-sm font-bold tracking-wide">{businessName}</div>
+                  <div className="text-xs opacity-80 capitalize">{businessType}</div>
                 </div>
-                <div className="text-xs opacity-80">Punches</div>
+              </div>
+              <div className="bg-white/20 px-2 py-1 rounded-md backdrop-blur-sm">
+                <span className="text-sm font-bold">
+                  {punches}/{totalPunches}
+                </span>
               </div>
             </div>
 
             {/* Punch Holes Grid */}
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 flex items-center justify-center py-2">
               <div className={cn("grid gap-2", totalPunches <= 5 ? "grid-cols-5" : "grid-cols-5")}>
                 {renderPunchHoles()}
               </div>
@@ -148,40 +155,46 @@ export function PunchCard({
 
             {/* Footer */}
             <div className="flex justify-between items-end">
-              <div>
-                <div className="text-sm font-semibold truncate max-w-40">{businessName}</div>
-                <div className="text-xs opacity-80 capitalize">{businessType}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs opacity-80">REWARD</div>
-                <div className="text-sm font-semibold">🎁</div>
+              <div className="text-xs opacity-90 font-medium">TAP TO FLIP</div>
+              <div className="flex items-center gap-1">
+                <div className="text-xs opacity-90">REWARD</div>
+                <div className="text-sm">🎁</div>
               </div>
             </div>
           </div>
-
-          {/* Chip */}
-          <div className="absolute top-16 left-6 w-8 h-6 bg-gradient-to-br from-yellow-300 to-yellow-500 rounded-md shadow-lg"></div>
         </div>
 
         {/* Back of Card */}
         <div
-          className="absolute inset-0 w-full h-full backface-hidden rounded-xl shadow-2xl rotate-y-180 overflow-hidden"
+          className="absolute inset-0 w-full h-full backface-hidden rounded-xl shadow-lg rotate-y-180 overflow-hidden"
           style={{
-            background: `linear-gradient(135deg, ${primaryColor}22 0%, ${primaryColor}44 50%, ${primaryColor}66 100%)`,
+            background: `linear-gradient(135deg, white 0%, #f9fafb 100%)`,
           }}
         >
-          {/* Magnetic Stripe */}
-          <div className="w-full h-12 bg-gray-800 mt-4"></div>
+          {/* Colored Stripe */}
+          <div className="w-full h-10" style={{ backgroundColor: primaryColor }}></div>
 
-          <div className="p-6 text-gray-800">
+          <div className="p-5 text-gray-800">
             <div className="mb-4">
-              <div className="text-lg font-bold mb-2">🎉 Reward Details</div>
-              <div className="text-sm bg-white/80 p-3 rounded-lg">{reward}</div>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="text-lg" style={{ color: primaryColor }}>
+                  🎁
+                </div>
+                <div className="text-sm font-bold" style={{ color: primaryColor }}>
+                  REWARD
+                </div>
+              </div>
+              <div
+                className="text-sm p-2 rounded-md font-medium"
+                style={{ backgroundColor: `${primaryColor}15`, color: primaryColor }}
+              >
+                {reward}
+              </div>
             </div>
 
             <div className="mb-4">
-              <div className="text-sm font-semibold mb-1">Progress</div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="text-xs font-medium mb-1 text-gray-500">PROGRESS</div>
+              <div className="w-full bg-gray-100 rounded-full h-2">
                 <div
                   className="h-2 rounded-full transition-all duration-500"
                   style={{
@@ -190,12 +203,12 @@ export function PunchCard({
                   }}
                 ></div>
               </div>
-              <div className="text-xs mt-1 text-gray-600">
-                {totalPunches - punches} more punches to earn your reward!
+              <div className="text-xs mt-1 text-gray-500">
+                {totalPunches - punches} more punches to earn your reward
               </div>
             </div>
 
-            <div className="text-xs text-gray-500 text-center">Tap card to flip • Collect punches to earn rewards</div>
+            <div className="text-xs text-center text-gray-400 mt-4">{businessName} • Loyalty Card</div>
           </div>
         </div>
       </div>

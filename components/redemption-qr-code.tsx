@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
+import { supabase } from "@/lib/supabase"
 
 interface RedemptionQRCodeProps {
   userId: string
@@ -20,9 +21,76 @@ export function RedemptionQRCode({
   primaryColor = "#10b981",
 }: RedemptionQRCodeProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [redemptionToken, setRedemptionToken] = useState<string>("")
+  const [isGenerating, setIsGenerating] = useState(true)
+  const [isExpired, setIsExpired] = useState(false)
+  const [expiryTime, setExpiryTime] = useState<Date | null>(null)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Generate a unique token for this redemption
+  useEffect(() => {
+    const generateToken = async () => {
+      setIsGenerating(true)
+
+      try {
+        // Create a unique token
+        const token = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`
+
+        // Set expiry time (5 minutes from now)
+        const expiry = new Date()
+        expiry.setMinutes(expiry.getMinutes() + 5)
+        setExpiryTime(expiry)
+
+        // Store the token in the database
+        const { error } = await supabase.from("redemption_tokens").insert({
+          token,
+          user_id: userId,
+          business_id: businessId,
+          punchcard_id: punchcardId,
+          reward,
+          expires_at: expiry.toISOString(),
+          is_used: false,
+        })
+
+        if (error) {
+          console.error("Error storing redemption token:", error)
+          return
+        }
+
+        setRedemptionToken(token)
+
+        // Set up expiry timer
+        if (timerRef.current) {
+          clearInterval(timerRef.current)
+        }
+
+        timerRef.current = setInterval(() => {
+          const now = new Date()
+          if (expiry <= now) {
+            setIsExpired(true)
+            if (timerRef.current) clearInterval(timerRef.current)
+          }
+        }, 1000)
+      } catch (error) {
+        console.error("Error generating redemption token:", error)
+      } finally {
+        setIsGenerating(false)
+      }
+    }
+
+    generateToken()
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+      }
+    }
+  }, [userId, businessId, punchcardId, reward])
 
   useEffect(() => {
     const generateQR = async () => {
+      if (!redemptionToken) return
+
       const canvas = canvasRef.current
       if (!canvas) return
 
@@ -33,13 +101,14 @@ export function RedemptionQRCode({
       const QRCode = (await import("qrcode")).default
 
       try {
-        // Create redemption QR data
+        // Create redemption QR data with token
         const redemptionData = {
           type: "redemption",
           userId,
           businessId,
           punchcardId,
           reward,
+          token: redemptionToken,
           timestamp: Date.now(),
         }
 
@@ -107,17 +176,68 @@ export function RedemptionQRCode({
     }
 
     generateQR()
-  }, [userId, businessId, punchcardId, reward, size, primaryColor])
+  }, [userId, businessId, punchcardId, reward, size, primaryColor, redemptionToken])
+
+  // Format remaining time
+  const formatRemainingTime = () => {
+    if (!expiryTime) return "Generating..."
+
+    const now = new Date()
+    const diffMs = expiryTime.getTime() - now.getTime()
+
+    if (diffMs <= 0) return "Expired"
+
+    const minutes = Math.floor(diffMs / 60000)
+    const seconds = Math.floor((diffMs % 60000) / 1000)
+
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`
+  }
+
+  const handleRefresh = async () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+    }
+    setRedemptionToken("")
+    setIsExpired(false)
+    setExpiryTime(null)
+  }
 
   return (
     <div className="qr-code-container flex flex-col items-center">
       <div className="relative">
-        <canvas ref={canvasRef} width={size} height={size} className="rounded-lg shadow-lg" />
-        <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center animate-pulse">
-          <span className="text-white text-xs font-bold">✓</span>
-        </div>
+        {isGenerating ? (
+          <div className="w-full h-full flex items-center justify-center" style={{ width: size, height: size }}>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2" style={{ borderColor: primaryColor }}></div>
+          </div>
+        ) : isExpired ? (
+          <div
+            className="w-full h-full flex flex-col items-center justify-center rounded-lg bg-gray-100"
+            style={{ width: size, height: size }}
+          >
+            <div className="text-red-500 text-lg mb-2">Expired</div>
+            <button
+              className="px-3 py-1 rounded-md text-sm text-white"
+              style={{ backgroundColor: primaryColor }}
+              onClick={handleRefresh}
+            >
+              Generate New
+            </button>
+          </div>
+        ) : (
+          <>
+            <canvas ref={canvasRef} width={size} height={size} className="rounded-lg shadow-lg" />
+            <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center animate-pulse">
+              <span className="text-white text-xs font-bold">✓</span>
+            </div>
+          </>
+        )}
       </div>
-      <p className="text-xs text-slate-500 mt-2 text-center">Redemption Code</p>
+      <div className="mt-2 text-center">
+        <p className="text-xs text-slate-500">Redemption Code</p>
+        <p className="text-xs font-medium mt-1" style={{ color: isExpired ? "red" : primaryColor }}>
+          {isExpired ? "Expired" : `Expires in: ${formatRemainingTime()}`}
+        </p>
+      </div>
     </div>
   )
 }
