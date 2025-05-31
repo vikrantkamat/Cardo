@@ -74,17 +74,23 @@ export function RewardsManagement({ businessId }: RewardsManagementProps) {
 
   const uploadImageToSupabase = async (file: File, businessId: string, rewardId: string) => {
     try {
+      console.log("Uploading image:", file.name, "for business:", businessId, "reward:", rewardId)
+
       const fileExt = file.name.split(".").pop()
       const fileName = `${businessId}/${rewardId}.${fileExt}`
 
       const { data, error } = await supabase.storage.from("reward-images").upload(fileName, file, { upsert: true })
 
-      if (error) throw error
+      if (error) {
+        console.error("Storage upload error:", error)
+        throw error
+      }
 
       const {
         data: { publicUrl },
       } = supabase.storage.from("reward-images").getPublicUrl(fileName)
 
+      console.log("Image uploaded successfully:", publicUrl)
       return publicUrl
     } catch (error) {
       console.error("Image upload error:", error)
@@ -93,6 +99,15 @@ export function RewardsManagement({ businessId }: RewardsManagementProps) {
   }
 
   const handleAddReward = async () => {
+    if (!formData.name.trim() || !formData.description.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsLoading(true)
     try {
       let imageUrl = null
@@ -106,8 +121,8 @@ export function RewardsManagement({ businessId }: RewardsManagementProps) {
         .from("business_rewards")
         .insert({
           business_id: businessId,
-          name: formData.name,
-          description: formData.description,
+          name: formData.name.trim(),
+          description: formData.description.trim(),
           punches_required: formData.punches_required,
           image_type: formData.image_type,
           image_value: imageUrl,
@@ -142,6 +157,7 @@ export function RewardsManagement({ businessId }: RewardsManagementProps) {
         description: "Reward added successfully.",
       })
     } catch (error: any) {
+      console.error("Add reward error:", error)
       toast({
         title: "Error",
         description: error.message || "Failed to add reward.",
@@ -428,7 +444,7 @@ export function RewardsManagement({ businessId }: RewardsManagementProps) {
                 </Button>
                 <Button
                   onClick={handleAddReward}
-                  disabled={!formData.name || !formData.description || isLoading}
+                  disabled={!formData.name.trim() || !formData.description.trim() || isLoading}
                   className="bg-gradient-to-r from-slate-600 to-blue-600 hover:from-slate-700 hover:to-blue-700"
                 >
                   {isLoading ? "Adding..." : "Add Reward"}
