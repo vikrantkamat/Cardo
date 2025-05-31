@@ -224,6 +224,9 @@ export default function BusinessDetail() {
                 punches={punchcard?.punches || 0}
                 totalPunches={business.punches_required}
                 primaryColor={business.primary_color}
+                businessName={business.name}
+                businessType={business.business_type}
+                reward={business.reward}
               />
             </CardContent>
             <CardFooter className="flex justify-center pb-6">
