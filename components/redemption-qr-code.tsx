@@ -38,7 +38,7 @@ export function RedemptionQRCode({
 
       try {
         // Create a unique token
-        const token = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`
+        const token = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
         console.log("Generated token:", token)
 
         // Set expiry time (5 minutes from now)
@@ -46,19 +46,6 @@ export function RedemptionQRCode({
         expiry.setMinutes(expiry.getMinutes() + 5)
         setExpiryTime(expiry)
         console.log("Expiry time set to:", expiry)
-
-        // Check if redemption_tokens table exists
-        const { data: tableExists } = await supabase
-          .from("information_schema.tables")
-          .select("table_name")
-          .eq("table_name", "redemption_tokens")
-          .single()
-
-        // If table doesn't exist, create it
-        if (!tableExists) {
-          console.log("Creating redemption_tokens table...")
-          await supabase.rpc("create_redemption_tokens_table")
-        }
 
         // Store the token in the database
         const { error } = await supabase.from("redemption_tokens").insert({
@@ -73,7 +60,27 @@ export function RedemptionQRCode({
 
         if (error) {
           console.error("Error storing redemption token:", error)
-          return
+          // Try to create the table if it doesn't exist
+          if (error.code === "42P01") {
+            console.log("Creating redemption_tokens table...")
+            await supabase.rpc("create_redemption_tokens_table")
+            // Retry the insert
+            const { error: retryError } = await supabase.from("redemption_tokens").insert({
+              token,
+              user_id: userId,
+              business_id: businessId,
+              punchcard_id: punchcardId,
+              reward,
+              expires_at: expiry.toISOString(),
+              is_used: false,
+            })
+            if (retryError) {
+              console.error("Retry error:", retryError)
+              return
+            }
+          } else {
+            return
+          }
         }
 
         console.log("Token stored successfully")
@@ -124,10 +131,10 @@ export function RedemptionQRCode({
       const ctx = canvas.getContext("2d")
       if (!ctx) return
 
-      // Import QR code library dynamically
-      const QRCode = (await import("qrcode")).default
-
       try {
+        // Import QR code library dynamically
+        const QRCode = (await import("qrcode")).default
+
         console.log("Generating QR code with token:", redemptionToken)
 
         // Create redemption QR data with token
@@ -217,7 +224,7 @@ export function RedemptionQRCode({
     setIsGenerating(true)
 
     // Generate new token
-    const token = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`
+    const token = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
 
     // Set expiry time (5 minutes from now)
     const expiry = new Date()

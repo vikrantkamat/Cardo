@@ -117,6 +117,16 @@ export function RewardsManagement({ businessId }: RewardsManagementProps) {
         imageUrl = formData.image_value
       }
 
+      console.log("Creating reward with data:", {
+        business_id: businessId,
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        punches_required: formData.punches_required,
+        image_type: formData.image_type,
+        image_value: imageUrl,
+        is_active: true,
+      })
+
       const { data, error } = await supabase
         .from("business_rewards")
         .insert({
@@ -131,10 +141,38 @@ export function RewardsManagement({ businessId }: RewardsManagementProps) {
         .select()
         .single()
 
-      if (error) throw error
+      if (error) {
+        console.error("Error creating reward:", error)
+        // If table doesn't exist, try to create it
+        if (error.code === "42P01") {
+          console.log("Creating business_rewards table...")
+          await supabase.rpc("create_business_rewards_table")
+          // Retry the insert
+          const { data: retryData, error: retryError } = await supabase
+            .from("business_rewards")
+            .insert({
+              business_id: businessId,
+              name: formData.name.trim(),
+              description: formData.description.trim(),
+              punches_required: formData.punches_required,
+              image_type: formData.image_type,
+              image_value: imageUrl,
+              is_active: true,
+            })
+            .select()
+            .single()
+
+          if (retryError) {
+            throw retryError
+          }
+          const data = retryData
+        } else {
+          throw error
+        }
+      }
 
       // Upload image file if needed
-      if (formData.image_type === "upload" && formData.image_file) {
+      if (formData.image_type === "upload" && formData.image_file && data) {
         const uploadedUrl = await uploadImageToSupabase(formData.image_file, businessId, data.id)
         if (uploadedUrl) {
           const { error: updateError } = await supabase
@@ -148,14 +186,16 @@ export function RewardsManagement({ businessId }: RewardsManagementProps) {
         }
       }
 
-      setRewards([data, ...rewards])
-      resetForm()
-      setIsAddDialogOpen(false)
+      if (data) {
+        setRewards([data, ...rewards])
+        resetForm()
+        setIsAddDialogOpen(false)
 
-      toast({
-        title: "Success! ✨",
-        description: "Reward added successfully.",
-      })
+        toast({
+          title: "Success! ✨",
+          description: "Reward added successfully.",
+        })
+      }
     } catch (error: any) {
       console.error("Add reward error:", error)
       toast({

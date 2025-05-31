@@ -23,6 +23,8 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
     reward?: string
     businessName?: string
     customerName?: string
+    punchesUsed?: number
+    remainingPunches?: number
   } | null>(null)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
@@ -32,6 +34,41 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animationRef = useRef<number>()
   const lastScanTime = useRef<number>(0)
+
+  const stopScanner = () => {
+    setIsScanning(false)
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+      setStream(null)
+    }
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current)
+    }
+  }
+
+  const startScanner = async () => {
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facingMode },
+      })
+      setStream(newStream)
+      setHasPermission(true)
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = newStream
+      }
+
+      setIsScanning(true)
+    } catch (error) {
+      console.error("Error accessing camera:", error)
+      setHasPermission(false)
+      toast({
+        title: "Camera Error",
+        description: "Failed to access the camera. Please check your permissions.",
+        variant: "destructive",
+      })
+    }
+  }
 
   const scanQRCode = useCallback(async () => {
     const video = videoRef.current
@@ -118,7 +155,7 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
     }
   }, [isScanning, isProcessing, onScan, onRedemptionScan, businessId])
 
-  // Validate redemption token
+  // Update the validateRedemptionToken function
   const validateRedemptionToken = async (redemptionData: any) => {
     try {
       console.log("Validating redemption token:", redemptionData)
@@ -158,15 +195,38 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
 
       // Get customer name
       const { data: userData } = await supabase.from("users").select("name, email").eq("id", userId).single()
-
       const customerName = userData?.name || userData?.email || "Customer"
 
       // Get business name
       const { data: businessData } = await supabase.from("businesses").select("name").eq("id", tokenBusinessId).single()
-
       const businessName = businessData?.name || "Business"
 
-      // Mark token as used
+      // Get punchcard data to verify punches
+      const { data: punchcardData, error: punchcardError } = await supabase
+        .from("punchcards")
+        .select("punches")
+        .eq("id", punchcardId)
+        .single()
+
+      if (punchcardError || !punchcardData) {
+        throw new Error("Invalid punchcard")
+      }
+
+      // Get business punches required
+      const { data: businessInfo } = await supabase
+        .from("businesses")
+        .select("punches_required")
+        .eq("id", tokenBusinessId)
+        .single()
+
+      const punchesRequired = businessInfo?.punches_required || 10
+
+      // Check if customer has enough punches
+      if (punchcardData.punches < punchesRequired) {
+        throw new Error("Customer doesn't have enough punches for redemption")
+      }
+
+      // Mark token as used FIRST to prevent double redemption
       const { error: updateError } = await supabase
         .from("redemption_tokens")
         .update({ is_used: true, used_at: new Date().toISOString() })
@@ -177,28 +237,21 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
         throw new Error("Error processing redemption")
       }
 
-      // Update punch balance
-      const { data: punchcardData, error: punchcardError } = await supabase
+      // Calculate new punch balance (subtract required punches)
+      const newPunches = Math.max(0, punchcardData.punches - punchesRequired)
+
+      // Update punchcard
+      const { error: updatePunchcardError } = await supabase
         .from("punchcards")
-        .select("punches, punches_required")
+        .update({
+          punches: newPunches,
+          last_redemption_at: new Date().toISOString(),
+        })
         .eq("id", punchcardId)
-        .single()
 
-      if (punchcardError || !punchcardData) {
-        console.error("Error fetching punchcard:", punchcardError)
-      } else {
-        // Calculate new punch balance (reset to 0 if it would go negative)
-        const newPunches = Math.max(0, punchcardData.punches - punchcardData.punches_required)
-
-        // Update punchcard
-        const { error: updatePunchcardError } = await supabase
-          .from("punchcards")
-          .update({ punches: newPunches, last_redemption_at: new Date().toISOString() })
-          .eq("id", punchcardId)
-
-        if (updatePunchcardError) {
-          console.error("Error updating punchcard:", updatePunchcardError)
-        }
+      if (updatePunchcardError) {
+        console.error("Error updating punchcard:", updatePunchcardError)
+        throw new Error("Error updating customer punches")
       }
 
       // Add to redemption history
@@ -219,6 +272,8 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
         ...redemptionData,
         customerName,
         businessName,
+        punchesUsed: punchesRequired,
+        remainingPunches: newPunches,
       })
 
       if (onRedemptionScan) {
@@ -226,13 +281,14 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
           ...redemptionData,
           customerName,
           businessName,
+          punchesUsed: punchesRequired,
+          remainingPunches: newPunches,
         })
       }
 
       toast({
-        title: "Redemption Successful!",
+        title: "Redemption Successful! 🎉",
         description: `${customerName} redeemed: ${reward}`,
-        variant: "success",
       })
     } catch (error: any) {
       console.error("Validation error:", error)
@@ -240,63 +296,24 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
     }
   }
 
-  const startScanner = async () => {
-    setScanResult(null)
-    setIsScanning(true)
-    setIsProcessing(false)
+  // Update the handleRedemptionScanSuccess function
+  const handleRedemptionScanSuccess = (redemptionData: any) => {
+    stopScanner()
+    setScanResult({
+      success: true,
+      message: `Redemption successful!`,
+      type: "redemption",
+      reward: redemptionData.reward,
+      customerName: redemptionData.customerName,
+      businessName: redemptionData.businessName,
+      punchesUsed: redemptionData.punchesUsed,
+      remainingPunches: redemptionData.remainingPunches,
+    })
 
-    try {
-      const constraints = {
-        video: {
-          facingMode: facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      }
-
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
-      setStream(mediaStream)
-      setHasPermission(true)
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
-
-        // Start scanning when video is ready
-        videoRef.current.onloadedmetadata = () => {
-          if (videoRef.current) {
-            videoRef.current.play()
-            scanQRCode()
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Error accessing camera:", error)
-      setHasPermission(false)
-      setIsScanning(false)
-      setScanResult({
-        success: false,
-        message: "Camera access denied. Please allow camera permissions and try again.",
-      })
-    }
-  }
-
-  const stopScanner = () => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
-    }
-
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
-      setStream(null)
-    }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null
-    }
-
-    setIsScanning(false)
-    setIsProcessing(false)
+    // Auto-close after 8 seconds
+    setTimeout(() => {
+      setScanResult(null)
+    }, 8000)
   }
 
   const handleScanSuccess = (data: string, type = "user") => {
@@ -311,23 +328,6 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
     setTimeout(() => {
       setScanResult(null)
     }, 2000)
-  }
-
-  const handleRedemptionScanSuccess = (redemptionData: any) => {
-    stopScanner()
-    setScanResult({
-      success: true,
-      message: `Redemption successful!`,
-      type: "redemption",
-      reward: redemptionData.reward,
-      customerName: redemptionData.customerName,
-      businessName: redemptionData.businessName,
-    })
-
-    // Auto-close after 5 seconds
-    setTimeout(() => {
-      setScanResult(null)
-    }, 5000)
   }
 
   const handleScanError = (message: string) => {
@@ -430,15 +430,25 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
                     <p className="text-lg font-medium text-green-800">{scanResult.message}</p>
 
                     {scanResult.type === "redemption" && scanResult.reward && (
-                      <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3 max-w-xs mx-auto">
+                      <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4 max-w-xs mx-auto">
                         {scanResult.customerName && (
-                          <p className="text-sm text-green-700 mb-1">
+                          <p className="text-sm text-green-700 mb-2">
                             <span className="font-medium">Customer:</span> {scanResult.customerName}
                           </p>
                         )}
-                        <p className="text-green-800 font-medium">Reward: {scanResult.reward}</p>
+                        <p className="text-green-800 font-medium mb-2">
+                          <span className="text-lg">🎁</span> {scanResult.reward}
+                        </p>
+                        {scanResult.punchesUsed && (
+                          <div className="text-xs text-green-600 space-y-1">
+                            <p>✓ Used {scanResult.punchesUsed} punches</p>
+                            <p>Remaining: {scanResult.remainingPunches} punches</p>
+                          </div>
+                        )}
                         {scanResult.businessName && (
-                          <p className="text-xs text-green-600 mt-1">From: {scanResult.businessName}</p>
+                          <p className="text-xs text-green-600 mt-2 border-t border-green-200 pt-2">
+                            From: {scanResult.businessName}
+                          </p>
                         )}
                       </div>
                     )}
