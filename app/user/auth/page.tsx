@@ -45,16 +45,18 @@ export default function UserAuth() {
       }
 
       // Check if user exists
-      const { data: user, error: userError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("email", signInData.email)
-        .single()
+      const { data: users, error: userError } = await supabase.from("users").select("*").eq("email", signInData.email)
 
       if (userError) {
         console.error("User lookup error:", userError)
         throw new Error("User not found. Please sign up first.")
       }
+
+      if (!users || users.length === 0) {
+        throw new Error("User not found. Please sign up first.")
+      }
+
+      const user = users[0]
 
       // Simple password check (in a real app, use proper password hashing)
       if (btoa(signInData.password) !== user.password_hash) {
