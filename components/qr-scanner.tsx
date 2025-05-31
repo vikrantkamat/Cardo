@@ -5,19 +5,24 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Camera, CheckCircle2, XCircle, AlertCircle, RotateCcw, Gift, User, RefreshCw } from "lucide-react"
 import { supabase } from "@/lib/supabase"
+import { useToast } from "@/hooks/use-toast"
 
 interface QrScannerProps {
   onScan: (data: string) => void
   onRedemptionScan?: (redemptionData: any) => void
+  businessId?: string
 }
 
-export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
+export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerProps) {
+  const { toast } = useToast()
   const [isScanning, setIsScanning] = useState(false)
   const [scanResult, setScanResult] = useState<{
     success: boolean
     message: string
     type?: string
     reward?: string
+    businessName?: string
+    customerName?: string
   } | null>(null)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
@@ -80,12 +85,17 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
           try {
             const redemptionJson = code.data.replace("redeem-", "")
             const redemptionData = JSON.parse(redemptionJson)
+            console.log("Redemption data:", redemptionData)
 
-            if (onRedemptionScan) {
-              // Validate the redemption token
+            // Validate the redemption token
+            if (businessId) {
+              // Only validate if we're in a business context
               await validateRedemptionToken(redemptionData)
             } else {
               handleScanSuccess(code.data, "redemption")
+              if (onRedemptionScan) {
+                onRedemptionScan(redemptionData)
+              }
             }
           } catch (error: any) {
             console.error("Error parsing redemption data:", error)
@@ -106,15 +116,21 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
     if (isScanning) {
       animationRef.current = requestAnimationFrame(scanQRCode)
     }
-  }, [isScanning, isProcessing, onScan, onRedemptionScan])
+  }, [isScanning, isProcessing, onScan, onRedemptionScan, businessId])
 
   // Validate redemption token
   const validateRedemptionToken = async (redemptionData: any) => {
     try {
-      const { token, userId, businessId, punchcardId, reward } = redemptionData
+      console.log("Validating redemption token:", redemptionData)
+      const { token, userId, businessId: tokenBusinessId, punchcardId, reward } = redemptionData
 
       if (!token) {
         throw new Error("Invalid redemption code: missing token")
+      }
+
+      // Verify this is for the current business
+      if (businessId && tokenBusinessId !== businessId) {
+        throw new Error("This redemption code is for a different business")
       }
 
       // Check if token exists and is valid
@@ -125,6 +141,7 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
         .single()
 
       if (tokenError || !tokenData) {
+        console.error("Token validation error:", tokenError)
         throw new Error("Invalid or expired redemption code")
       }
 
@@ -139,6 +156,16 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
         throw new Error("This redemption code has expired")
       }
 
+      // Get customer name
+      const { data: userData } = await supabase.from("users").select("name, email").eq("id", userId).single()
+
+      const customerName = userData?.name || userData?.email || "Customer"
+
+      // Get business name
+      const { data: businessData } = await supabase.from("businesses").select("name").eq("id", tokenBusinessId).single()
+
+      const businessName = businessData?.name || "Business"
+
       // Mark token as used
       const { error: updateError } = await supabase
         .from("redemption_tokens")
@@ -146,15 +173,69 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
         .eq("token", token)
 
       if (updateError) {
+        console.error("Error updating token:", updateError)
         throw new Error("Error processing redemption")
       }
 
-      // Process the redemption
-      handleRedemptionScanSuccess(redemptionData)
-      if (onRedemptionScan) {
-        onRedemptionScan(redemptionData)
+      // Update punch balance
+      const { data: punchcardData, error: punchcardError } = await supabase
+        .from("punchcards")
+        .select("punches, punches_required")
+        .eq("id", punchcardId)
+        .single()
+
+      if (punchcardError || !punchcardData) {
+        console.error("Error fetching punchcard:", punchcardError)
+      } else {
+        // Calculate new punch balance (reset to 0 if it would go negative)
+        const newPunches = Math.max(0, punchcardData.punches - punchcardData.punches_required)
+
+        // Update punchcard
+        const { error: updatePunchcardError } = await supabase
+          .from("punchcards")
+          .update({ punches: newPunches, last_redemption_at: new Date().toISOString() })
+          .eq("id", punchcardId)
+
+        if (updatePunchcardError) {
+          console.error("Error updating punchcard:", updatePunchcardError)
+        }
       }
+
+      // Add to redemption history
+      try {
+        await supabase.from("redemption_history").insert({
+          user_id: userId,
+          business_id: tokenBusinessId,
+          punchcard_id: punchcardId,
+          reward,
+          redeemed_at: new Date().toISOString(),
+        })
+      } catch (error) {
+        console.error("Error adding to redemption history:", error)
+      }
+
+      // Process the redemption
+      handleRedemptionScanSuccess({
+        ...redemptionData,
+        customerName,
+        businessName,
+      })
+
+      if (onRedemptionScan) {
+        onRedemptionScan({
+          ...redemptionData,
+          customerName,
+          businessName,
+        })
+      }
+
+      toast({
+        title: "Redemption Successful!",
+        description: `${customerName} redeemed: ${reward}`,
+        variant: "success",
+      })
     } catch (error: any) {
+      console.error("Validation error:", error)
       handleScanError(error.message || "Error validating redemption")
     }
   }
@@ -239,12 +320,14 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
       message: `Redemption successful!`,
       type: "redemption",
       reward: redemptionData.reward,
+      customerName: redemptionData.customerName,
+      businessName: redemptionData.businessName,
     })
 
-    // Auto-close after 3 seconds
+    // Auto-close after 5 seconds
     setTimeout(() => {
       setScanResult(null)
-    }, 3000)
+    }, 5000)
   }
 
   const handleScanError = (message: string) => {
@@ -332,7 +415,7 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
         ) : (
           <Card className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 rounded-lg border-2 border-dashed border-slate-300">
             {scanResult ? (
-              <div className="text-center p-6">
+              <div className="text-center p-6 w-full">
                 {scanResult.success ? (
                   <>
                     <div className="relative mb-4">
@@ -347,8 +430,16 @@ export function QrScanner({ onScan, onRedemptionScan }: QrScannerProps) {
                     <p className="text-lg font-medium text-green-800">{scanResult.message}</p>
 
                     {scanResult.type === "redemption" && scanResult.reward && (
-                      <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-3">
+                      <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3 max-w-xs mx-auto">
+                        {scanResult.customerName && (
+                          <p className="text-sm text-green-700 mb-1">
+                            <span className="font-medium">Customer:</span> {scanResult.customerName}
+                          </p>
+                        )}
                         <p className="text-green-800 font-medium">Reward: {scanResult.reward}</p>
+                        {scanResult.businessName && (
+                          <p className="text-xs text-green-600 mt-1">From: {scanResult.businessName}</p>
+                        )}
                       </div>
                     )}
 
