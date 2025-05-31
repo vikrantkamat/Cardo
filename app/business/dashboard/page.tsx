@@ -154,7 +154,8 @@ export default function BusinessDashboard() {
 
   const handleRedemptionScan = async (redemptionData: any) => {
     try {
-      const { userId, businessId, punchcardId, reward } = redemptionData
+      console.log("Processing redemption:", redemptionData)
+      const { userId, businessId, punchcardId, reward, customerName } = redemptionData
 
       // Verify the redemption is for this business
       if (businessId !== business.id) {
@@ -176,8 +177,15 @@ export default function BusinessDashboard() {
         throw new Error("Customer doesn't have enough punches for redemption")
       }
 
-      // Reset the punchcard
-      const { error: resetError } = await supabase.from("punchcards").update({ punches: 0 }).eq("id", punchcardId)
+      // Reset the punchcard (subtract required punches)
+      const newPunches = Math.max(0, punchcard.punches - business.punches_required)
+      const { error: resetError } = await supabase
+        .from("punchcards")
+        .update({
+          punches: newPunches,
+          last_redemption_at: new Date().toISOString(),
+        })
+        .eq("id", punchcardId)
 
       if (resetError) throw resetError
 
@@ -192,13 +200,14 @@ export default function BusinessDashboard() {
 
       toast({
         title: "Reward Redeemed! 🎉",
-        description: `${punchcard.users.name || punchcard.users.email} redeemed: ${reward}`,
+        description: `${customerName || punchcard.users.name || punchcard.users.email} redeemed: ${reward}`,
         duration: 5000,
       })
 
       // Reload customer data
       loadBusinessData()
     } catch (error: any) {
+      console.error("Redemption error:", error)
       toast({
         title: "Redemption Error",
         description: error.message || "Failed to process redemption.",
@@ -359,7 +368,7 @@ export default function BusinessDashboard() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <QrScanner onScan={handleQrScan} onRedemptionScan={handleRedemptionScan} />
+                    <QrScanner onScan={handleQrScan} onRedemptionScan={handleRedemptionScan} businessId={business.id} />
                   </CardContent>
                 </Card>
               </TabsContent>
