@@ -9,9 +9,11 @@ import Link from "next/link"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 import { PunchCard } from "@/components/punch-card"
+import { useRouter } from "next/navigation"
 
 export default function UserPunchcards() {
   const { toast } = useToast()
+  const router = useRouter()
   const [punchcards, setPunchcards] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [userId, setUserId] = useState<string | null>(null)
@@ -26,9 +28,10 @@ export default function UserPunchcards() {
       if (!storedUserId) {
         toast({
           title: "Error",
-          description: "User not found. Please visit businesses first.",
+          description: "User not found. Please sign in first.",
           variant: "destructive",
         })
+        router.push("/user/auth")
         return
       }
 
@@ -119,6 +122,8 @@ export default function UserPunchcards() {
               <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8 justify-items-center">
                 {punchcards.map((punchcard, index) => {
                   const business = punchcard.businesses
+                  if (!business) return null
+
                   return (
                     <div key={punchcard.id} className="group" style={{ animationDelay: `${index * 100}ms` }}>
                       {/* Business Info Card */}
@@ -180,6 +185,9 @@ export default function UserPunchcards() {
                           businessType={business.business_type}
                           reward={business.reward}
                           onPunchClick={() => handlePunchCardClick(punchcard)}
+                          businessId={business.id}
+                          userId={userId || ""}
+                          punchcardId={punchcard.id}
                         />
                       </div>
 

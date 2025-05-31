@@ -227,6 +227,9 @@ export default function BusinessDetail() {
                 businessName={business.name}
                 businessType={business.business_type}
                 reward={business.reward}
+                businessId={business.id}
+                userId={userId || ""}
+                punchcardId={punchcard?.id}
               />
             </CardContent>
             <CardFooter className="flex justify-center pb-6">

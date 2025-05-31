@@ -30,6 +30,41 @@ export function RedemptionQRCode({
   const [remainingTime, setRemainingTime] = useState<string>("5:00")
   const timerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Create the redemption_tokens table if it doesn't exist
+  const ensureRedemptionTokensTable = async () => {
+    try {
+      // Check if table exists
+      const { count, error } = await supabase
+        .from("redemption_tokens")
+        .select("*", { count: "exact", head: true })
+        .limit(1)
+
+      if (error && error.code === "42P01") {
+        // Table doesn't exist, create it
+        await supabase.rpc("create_redemption_tokens_table").catch((err) => {
+          console.error("Error creating table via RPC:", err)
+          // Fallback: create table directly
+          return supabase.query(`
+            CREATE TABLE IF NOT EXISTS redemption_tokens (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              token TEXT NOT NULL UNIQUE,
+              user_id UUID NOT NULL,
+              business_id UUID NOT NULL,
+              punchcard_id UUID NOT NULL,
+              reward TEXT NOT NULL,
+              created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+              expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+              is_used BOOLEAN DEFAULT FALSE,
+              used_at TIMESTAMP WITH TIME ZONE
+            )
+          `)
+        })
+      }
+    } catch (err) {
+      console.error("Error checking/creating redemption_tokens table:", err)
+    }
+  }
+
   // Generate a unique token for this redemption
   useEffect(() => {
     const generateToken = async () => {
@@ -37,6 +72,9 @@ export function RedemptionQRCode({
       console.log("Generating redemption token...")
 
       try {
+        // Ensure table exists
+        await ensureRedemptionTokensTable()
+
         // Create a unique token
         const token = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
         console.log("Generated token:", token)
@@ -60,27 +98,7 @@ export function RedemptionQRCode({
 
         if (error) {
           console.error("Error storing redemption token:", error)
-          // Try to create the table if it doesn't exist
-          if (error.code === "42P01") {
-            console.log("Creating redemption_tokens table...")
-            await supabase.rpc("create_redemption_tokens_table")
-            // Retry the insert
-            const { error: retryError } = await supabase.from("redemption_tokens").insert({
-              token,
-              user_id: userId,
-              business_id: businessId,
-              punchcard_id: punchcardId,
-              reward,
-              expires_at: expiry.toISOString(),
-              is_used: false,
-            })
-            if (retryError) {
-              console.error("Retry error:", retryError)
-              return
-            }
-          } else {
-            return
-          }
+          return
         }
 
         console.log("Token stored successfully")

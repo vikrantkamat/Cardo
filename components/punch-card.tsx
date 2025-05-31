@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -8,42 +9,45 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Gift, ArrowLeft, Sparkles } from "lucide-react"
 import { RedemptionQRCode } from "./redemption-qr-code"
-import { cn } from "@/lib/utils"
 
 interface PunchCardProps {
-  business: {
-    id: string
-    name: string
-    business_type: string
-    primary_color: string
-    punches_required: number
-    reward: string
-  }
-  punchcard: {
-    id: string
-    punches: number
-    user_id: string
-  }
-  onFlip?: () => void
-  className?: string
+  punches: number
+  totalPunches: number
+  primaryColor?: string
+  businessName: string
+  businessType: string
+  reward: string
+  onPunchClick?: () => void
+  businessId?: string
+  userId?: string
+  punchcardId?: string
 }
 
-export function PunchCard({ business, punchcard, onFlip, className }: PunchCardProps) {
+export function PunchCard({
+  punches,
+  totalPunches,
+  primaryColor = "#6d28d9",
+  businessName,
+  businessType,
+  reward,
+  onPunchClick,
+  businessId,
+  userId,
+  punchcardId,
+}: PunchCardProps) {
   const [isFlipped, setIsFlipped] = useState(false)
   const [showRedemption, setShowRedemption] = useState(false)
   const [hasFlippedOnce, setHasFlippedOnce] = useState(false)
 
-  const progress = (punchcard.punches / business.punches_required) * 100
-  const canRedeem = punchcard.punches >= business.punches_required
-  const punchesNeeded = Math.max(0, business.punches_required - punchcard.punches)
+  const progress = (punches / totalPunches) * 100
+  const canRedeem = punches >= totalPunches
 
-  // Auto-flip on mount
   useEffect(() => {
     if (!hasFlippedOnce) {
       const timer = setTimeout(() => {
         setIsFlipped(true)
         setHasFlippedOnce(true)
-        setTimeout(() => setIsFlipped(false), 2000)
+        setTimeout(() => setIsFlipped(false), 600)
       }, 300)
       return () => clearTimeout(timer)
     }
@@ -52,13 +56,12 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
   const handleCardClick = () => {
     if (!showRedemption) {
       setIsFlipped(!isFlipped)
-      onFlip?.()
+      if (onPunchClick) onPunchClick()
     }
   }
 
   const handleRedeemClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    console.log("Redeem button clicked - showing QR code")
     setShowRedemption(true)
   }
 
@@ -67,26 +70,41 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
     setShowRedemption(false)
   }
 
-  // Generate business icon based on type
-  const getBusinessIcon = (type: string) => {
-    const icons: { [key: string]: string } = {
-      restaurant: "🍽️",
-      cafe: "☕",
-      retail: "🛍️",
-      fitness: "💪",
-      beauty: "💄",
-      automotive: "🚗",
-      health: "🏥",
-      entertainment: "🎬",
-      education: "📚",
-      default: "🏪",
+  const getBusinessIcon = () => {
+    switch (businessType.toLowerCase()) {
+      case "cafe":
+        return "☕"
+      case "bakery":
+        return "🥐"
+      case "juice":
+        return "🥤"
+      case "restaurant":
+        return "🍽️"
+      case "retail":
+        return "🛍️"
+      default:
+        return "⭐"
     }
-    return icons[type.toLowerCase()] || icons.default
   }
 
   if (showRedemption) {
+    if (!userId || !businessId || !punchcardId) {
+      return (
+        <div className="w-80 h-48 bg-white rounded-xl shadow-lg flex items-center justify-center">
+          <div className="text-center p-4">
+            <p className="text-red-500 font-medium mb-2">Missing information</p>
+            <p className="text-sm text-gray-600">Cannot generate redemption code</p>
+            <Button variant="outline" size="sm" onClick={handleBackClick} className="mt-3">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Back
+            </Button>
+          </div>
+        </div>
+      )
+    }
+
     return (
-      <div className={cn("w-80 h-48 perspective-1000", className)}>
+      <div className="w-80 h-48 perspective-1000">
         <Card className="w-full h-full bg-white border-0 shadow-xl rounded-2xl overflow-hidden">
           <CardContent className="p-6 h-full flex flex-col items-center justify-center relative">
             <Button
@@ -105,12 +123,12 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
             </div>
 
             <RedemptionQRCode
-              userId={punchcard.user_id}
-              businessId={business.id}
-              punchcardId={punchcard.id}
-              reward={business.reward}
+              userId={userId}
+              businessId={businessId}
+              punchcardId={punchcardId}
+              reward={reward}
               size={120}
-              primaryColor={business.primary_color}
+              primaryColor={primaryColor}
             />
           </CardContent>
         </Card>
@@ -119,7 +137,7 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
   }
 
   return (
-    <div className={cn("w-80 h-48 perspective-1000", className)}>
+    <div className="w-80 h-48 perspective-1000">
       <div
         className={`relative w-full h-full transition-transform duration-700 transform-style-preserve-3d cursor-pointer ${
           isFlipped ? "rotate-y-180" : ""
@@ -130,7 +148,7 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
         <Card
           className="absolute inset-0 w-full h-full backface-hidden border-0 shadow-xl rounded-2xl overflow-hidden"
           style={{
-            background: `linear-gradient(135deg, ${business.primary_color}15 0%, ${business.primary_color}25 100%)`,
+            background: `linear-gradient(135deg, ${primaryColor}15 0%, ${primaryColor}25 100%)`,
           }}
         >
           <CardContent className="p-6 h-full flex flex-col justify-between relative">
@@ -139,9 +157,9 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
               <div className="flex items-center gap-2">
                 <div
                   className="w-8 h-8 rounded-lg flex items-center justify-center text-lg"
-                  style={{ backgroundColor: `${business.primary_color}20` }}
+                  style={{ backgroundColor: `${primaryColor}20` }}
                 >
-                  {getBusinessIcon(business.business_type)}
+                  {getBusinessIcon()}
                 </div>
                 <span className="text-xs font-medium text-slate-600">LOYALTY CARD</span>
               </div>
@@ -151,16 +169,16 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
             {/* Punch Grid */}
             <div className="flex-1 flex items-center justify-center">
               <div className="grid grid-cols-5 gap-2">
-                {Array.from({ length: business.punches_required }).map((_, index) => (
+                {Array.from({ length: Math.min(totalPunches, 10) }).map((_, index) => (
                   <div
                     key={index}
                     className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-                      index < punchcard.punches
+                      index < punches
                         ? `bg-gradient-to-br from-green-400 to-green-600 border-green-500 text-white shadow-lg scale-110`
                         : `border-slate-300 bg-white`
                     }`}
                   >
-                    {index < punchcard.punches && <span className="text-xs font-bold">✓</span>}
+                    {index < punches && <span className="text-xs font-bold">✓</span>}
                   </div>
                 ))}
               </div>
@@ -170,15 +188,15 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-slate-700">
-                  {punchcard.punches}/{business.punches_required} Punches
+                  {punches}/{totalPunches} Punches
                 </span>
                 <Gift className="h-4 w-4 text-slate-500" />
               </div>
-              <h3 className="font-bold text-slate-800 truncate">{business.name}</h3>
+              <h3 className="font-bold text-slate-800 truncate">{businessName}</h3>
             </div>
 
             {/* Redeem Button */}
-            {canRedeem && (
+            {canRedeem && userId && businessId && punchcardId && (
               <Button
                 onClick={handleRedeemClick}
                 className="mt-3 w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-medium shadow-lg"
@@ -194,7 +212,7 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
         <Card
           className="absolute inset-0 w-full h-full backface-hidden rotate-y-180 border-0 shadow-xl rounded-2xl overflow-hidden"
           style={{
-            background: `linear-gradient(135deg, ${business.primary_color}20 0%, ${business.primary_color}30 100%)`,
+            background: `linear-gradient(135deg, ${primaryColor}20 0%, ${primaryColor}30 100%)`,
           }}
         >
           <CardContent className="p-6 h-full flex flex-col justify-between">
@@ -205,22 +223,22 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
             <div className="flex-1 space-y-4">
               <div>
                 <h4 className="font-bold text-slate-800 mb-2">Your Reward</h4>
-                <p className="text-sm text-slate-600 bg-white/50 p-3 rounded-lg">{business.reward}</p>
+                <p className="text-sm text-slate-600 bg-white/50 p-3 rounded-lg">{reward}</p>
               </div>
 
               <div>
                 <div className="flex justify-between text-sm mb-2">
                   <span className="text-slate-600">Progress</span>
-                  <span className="font-medium" style={{ color: business.primary_color }}>
+                  <span className="font-medium" style={{ color: primaryColor }}>
                     {Math.round(progress)}%
                   </span>
                 </div>
-                <Progress value={progress} className="h-2" style={{ backgroundColor: `${business.primary_color}20` }} />
+                <Progress value={progress} className="h-2" style={{ backgroundColor: `${primaryColor}20` }} />
               </div>
 
               {!canRedeem && (
                 <Badge variant="outline" className="w-fit">
-                  {punchesNeeded} more punch{punchesNeeded !== 1 ? "es" : ""} needed
+                  {totalPunches - punches} more punch{totalPunches - punches !== 1 ? "es" : ""} needed
                 </Badge>
               )}
 
@@ -234,6 +252,21 @@ export function PunchCard({ business, punchcard, onFlip, className }: PunchCardP
           </CardContent>
         </Card>
       </div>
+
+      <style jsx>{`
+        .perspective-1000 {
+          perspective: 1000px;
+        }
+        .transform-style-preserve-3d {
+          transform-style: preserve-3d;
+        }
+        .backface-hidden {
+          backface-visibility: hidden;
+        }
+        .rotate-y-180 {
+          transform: rotateY(180deg);
+        }
+      `}</style>
     </div>
   )
 }
