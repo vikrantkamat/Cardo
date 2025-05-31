@@ -359,7 +359,7 @@ export default function BusinessDashboard() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <QrScanner onScan={handleQrScan} onRedemptionScan={handleRedemptionScan} />
+                    <QrScanner onScan={handleQrScan} onRedemptionScan={handleRedemptionScan} businessId={business.id} />
                   </CardContent>
                 </Card>
               </TabsContent>

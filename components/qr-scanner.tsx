@@ -36,36 +36,61 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
   const lastScanTime = useRef<number>(0)
 
   const stopScanner = () => {
-    setIsScanning(false)
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current)
+    }
+
     if (stream) {
       stream.getTracks().forEach((track) => track.stop())
       setStream(null)
     }
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
     }
+
+    setIsScanning(false)
+    setIsProcessing(false)
   }
 
   const startScanner = async () => {
+    setScanResult(null)
+    setIsScanning(true)
+    setIsProcessing(false)
+
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facingMode },
-      })
-      setStream(newStream)
+      const constraints = {
+        video: {
+          facingMode: facingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      }
+
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+      setStream(mediaStream)
       setHasPermission(true)
 
       if (videoRef.current) {
-        videoRef.current.srcObject = newStream
-      }
+        videoRef.current.srcObject = mediaStream
 
-      setIsScanning(true)
+        // Start scanning when video is ready
+        videoRef.current.onloadedmetadata = () => {
+          if (videoRef.current) {
+            videoRef.current.play()
+            // Start the scanning loop
+            scanQRCode()
+          }
+        }
+      }
     } catch (error) {
       console.error("Error accessing camera:", error)
       setHasPermission(false)
-      toast({
-        title: "Camera Error",
-        description: "Failed to access the camera. Please check your permissions.",
-        variant: "destructive",
+      setIsScanning(false)
+      setScanResult({
+        success: false,
+        message: "Camera access denied. Please allow camera permissions and try again.",
       })
     }
   }
@@ -360,6 +385,19 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
     }
   }, [isScanning, scanQRCode])
 
+  const handleStartScanner = async () => {
+    try {
+      await startScanner()
+    } catch (error) {
+      console.error("Failed to start scanner:", error)
+      toast({
+        title: "Camera Error",
+        description: "Failed to start the camera. Please check your permissions and try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="flex flex-col items-center">
       <div className="relative w-full max-w-md aspect-square mb-4">
@@ -494,7 +532,7 @@ export function QrScanner({ onScan, onRedemptionScan, businessId }: QrScannerPro
           </Button>
         ) : (
           <Button
-            onClick={startScanner}
+            onClick={handleStartScanner}
             className="bg-gradient-to-r from-slate-600 to-blue-600 hover:from-slate-700 hover:to-blue-700 text-white"
           >
             {scanResult ? "Scan Another Code" : "Start Scanner"}
